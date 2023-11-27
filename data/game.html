@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        background-color: #111;
+        color: white;
+      }
+
+      canvas {
+        border: 2px solid white;
+      }
+    </style>
+    <title>Multiplayer Space Invaders</title>
+  </head>
+  <body>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <script>
+      const wss_url = window.location.host;
+      const my_socket = new WebSocket(`ws://${wss_url}/player`);
+
+      my_socket.onmessage = async (event) => {
+        try {
+          // Convert the Blob to a text string
+          const incomingMessage = await event.data.text();
+          console.log("Received message from server:", incomingMessage);
+
+          // Now you can work with the text string
+          // If the content is JSON, you can parse it
+          try {
+            const parsedData = JSON.parse(incomingMessage);
+            console.log("Parsed JSON data:", parsedData);
+            setPlayer2TargetLocation(parsedData.posX, 50);
+            if (parsedData.shoot) {
+              shoot(player2);
+            }
+          } catch (error) {
+            console.error("Error parsing JSON:", error);
+          }
+        } catch (error) {
+          console.error("Error converting Blob to text:", error);
+        }
+      };
+
+      const updateWs = (shoot) => {
+        if (my_socket.readyState == WebSocket.OPEN) {
+          let data = {};
+          data.posX = getPlayer1Location().x;
+          data.shoot = shoot;
+          my_socket.send(JSON.stringify(data));
+        }
+      };
+    </script>
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+
+      const bulletSpeed = 5;
+      const player2 = {
+        x: 375,
+        y: 50,
+        targetX: 375,
+        targetY: 50,
+        width: 50,
+        height: 50,
+        color: "red",
+        speed: 5,
+        lives: 3,
+        bullets: [],
+      };
+
+      const player1 = {
+        x: 375,
+        y: 500,
+        width: 50,
+        height: 50,
+        color: "blue",
+        speed: 5,
+        lives: 3,
+        bullets: [],
+      };
+
+      function drawPlayer(player) {
+        ctx.fillStyle = player.color;
+        ctx.fillRect(player.x, player.y, player.width, player.height);
+      }
+
+      function drawBullet(bullet) {
+        ctx.fillStyle = "white";
+        ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
+      }
+
+      function drawLives(player) {
+        ctx.fillStyle = "white";
+        ctx.font = "20px Arial";
+        ctx.fillText(`Lives: ${player.lives}`, player.x, player.y - 10);
+      }
+
+      function interpolateMovement(player) {
+        const ease = 0.5; // Adjust the ease value to control the smoothness of the movement
+        player.x += (player.targetX - player.x) * ease;
+        player.y += (player.targetY - player.y) * ease;
+      }
+
+      let wsUpdateCounter = 0;
+      function update() {
+        // Move players
+        interpolateMovement(player2);
+
+        if (wsUpdateCounter < 3) {
+          updateWs(false);
+          wsUpdateCounter++;
+        }
+
+        if (keys["ArrowLeft"] && player1.x > 0) {
+          updateWs(false);
+          wsUpdateCounter = 0;
+          player1.x -= player1.speed;
+        }
+        if (keys["ArrowRight"] && player1.x < canvas.width - player1.width) {
+          updateWs(false);
+          wsUpdateCounter = 0;
+          player1.x += player1.speed;
+        }
+
+        // Move bullets
+        player1.bullets.forEach((bullet) => {
+          bullet.y -= bulletSpeed;
+        });
+
+        player2.bullets.forEach((bullet) => {
+          bullet.y += bulletSpeed;
+        });
+
+        // Check for bullet collisions
+        checkBulletCollision(player1, player2);
+        checkBulletCollision(player2, player1);
+
+        // Clear canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw players
+        drawPlayer(player1);
+        drawPlayer(player2);
+
+        // Draw bullets
+        player1.bullets.forEach(drawBullet);
+        player2.bullets.forEach(drawBullet);
+
+        // Draw lives
+        drawLives(player1);
+        drawLives(player2);
+
+        requestAnimationFrame(update);
+      }
+
+      function checkBulletCollision(shooter, target) {
+        shooter.bullets.forEach((bullet, bulletIndex) => {
+          if (
+            bullet.x < target.x + target.width &&
+            bullet.x + bullet.width > target.x &&
+            bullet.y < target.y + target.height &&
+            bullet.y + bullet.height > target.y
+          ) {
+            // Bullet hit the target
+            target.lives--;
+
+            // Remove the bullet
+            shooter.bullets.splice(bulletIndex, 1);
+
+            // Check for game over
+            if (target.lives === 0) {
+              alert(`${shooter.color} wins! Game Over!`);
+              resetGame();
+            }
+          }
+        });
+      }
+
+      function resetGame() {
+        player1.x = 375;
+        player1.y = 500;
+        player1.lives = 3;
+        player1.bullets = [];
+
+        player2.x = 375;
+        player2.y = 50;
+        player2.targetX = 375;
+        player2.targetY = 50;
+        player2.lives = 3;
+        player2.bullets = [];
+      }
+
+      function shoot(player) {
+        const bullet = {
+          x: player.x + player.width / 2 - 5,
+          y: player.y,
+          width: 10,
+          height: 20,
+        };
+        player.bullets.push(bullet);
+      }
+
+      function getPlayer1Location() {
+        return { x: player1.x, y: player1.y };
+      }
+
+      function getPlayer2Location() {
+        return { x: player2.x, y: player2.y };
+      }
+
+      function setPlayer1Location(x, y) {
+        player1.x = x;
+        player1.y = y;
+      }
+
+      function setPlayer2Location(x, y) {
+        player2.x = x;
+        player2.y = y;
+      }
+
+      function setPlayer2TargetLocation(x, y) {
+        player2.targetX = x;
+        player2.targetY = y;
+      }
+
+      const keys = {};
+
+      window.addEventListener("keydown", (e) => {
+        keys[e.key] = true;
+
+        // Player 1 shoots
+        if (e.key === " ") {
+          updateWs(true);
+          shoot(player1);
+        }
+      });
+
+      window.addEventListener("keyup", (e) => {
+        keys[e.key] = false;
+      });
+
+      update();
+    </script>
+  </body>
+</html>
